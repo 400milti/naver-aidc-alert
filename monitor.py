@@ -51,6 +51,8 @@ SIGNAL_ANY = [
     "테넌트", "고객사", "고객", "계약", "수주", "공급", "MOU", "협약",
     "입주", "임차", "GPUaaS", "GPU 임대", "AI 팩토리", "네오클라우드",
 ]
+# 제목에 네이버가 없어도, 본문에 네이버가 있고 제목에 이 단어가 있으면 통과
+STRONG_TITLE = ["테넌트", "GPUaaS", "AI 팩토리", "네오클라우드"]
 # 이 단어가 제목에 있으면 무시 (노이즈)
 EXCLUDE_TITLE = ["[포토]", "부고", "인사]"]
 
@@ -147,10 +149,16 @@ def naver_search(query: str, cid: str, secret: str) -> list[dict]:
 
 
 def relevant(title: str, desc: str) -> bool:
-    text = f"{title} {desc}".lower()
+    t, d = title.lower(), desc.lower()
+    text = f"{t} {d}"
     if any(x in title for x in EXCLUDE_TITLE):
         return False
-    if not any(m.lower() in text for m in MUST_ANY):
+    # 네이버가 '제목'에 있어야 한다. 본문에만 스쳐 지나가는 기사(타사 기사, 종목 추천 등)는 노이즈.
+    # 예외: 본문에 네이버가 있고 제목에 강한 신호(테넌트 등)가 있으면 통과.
+    in_title = any(m.lower() in t for m in MUST_ANY)
+    in_desc = any(m.lower() in d for m in MUST_ANY)
+    strong_title = any(s.lower() in t for s in STRONG_TITLE)
+    if not (in_title or (in_desc and strong_title)):
         return False
     return any(s.lower() in text for s in SIGNAL_ANY)
 
