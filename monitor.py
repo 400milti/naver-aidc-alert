@@ -54,16 +54,37 @@ def norm_title(title: str) -> str:
     return re.sub(r"[^0-9A-Za-z가-힣]", "", title)[:40]
 
 
+PARAMS = {"display": DISPLAY, "sort": "date"}
+
+
+def _get(url: str, headers: dict) -> list[dict]:
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return json.load(r).get("items", [])
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace")[:300]
+        raise RuntimeError(f"HTTP {e.code} {body}") from None
+
+
 def naver_search(query: str, cid: str, secret: str) -> list[dict]:
-    url = "https://openapi.naver.com/v1/search/news.json?" + urllib.parse.urlencode(
-        {"query": query, "display": DISPLAY, "sort": "date"}
-    )
-    req = urllib.request.Request(
-        url,
-        headers={"X-Naver-Client-Id": cid, "X-Naver-Client-Secret": secret},
-    )
-    with urllib.request.urlopen(req, timeout=20) as r:
-        return json.load(r).get("items", [])
+    """NAVER API HUB(NCP) 방식 먼저, 인증 실패(401/403)면 옛 developers.naver.com 방식으로 재시도."""
+    qs = urllib.parse.urlencode({"query": query, **PARAMS})
+    try:
+        return _get(
+            "https://naverapihub.apigw.ntruss.com/search/v1/news?" + qs,
+            {"X-NCP-APIGW-API-KEY-ID": cid, "X-NCP-APIGW-API-KEY": secret},
+        )
+    except RuntimeError as hub_err:
+        if not str(hub_err).startswith(("HTTP 401", "HTTP 403")):
+            raise
+        try:
+            return _get(
+                "https://openapi.naver.com/v1/search/news.json?" + qs,
+                {"X-Naver-Client-Id": cid, "X-Naver-Client-Secret": secret},
+            )
+        except RuntimeError as old_err:
+            raise RuntimeError(f"HUB[{hub_err}] / 구방식[{old_err}]") from None
 
 
 def relevant(title: str, desc: str) -> bool:
@@ -110,11 +131,13 @@ def main() -> int:
     seen_set = set(seen)
 
     found: dict[str, dict] = {}
+    failed = 0
     for q in QUERIES:
         try:
             items = naver_search(q, env["NAVER_CLIENT_ID"], env["NAVER_CLIENT_SECRET"])
         except Exception as e:  # 한 검색어 실패가 전체를 막지 않게
             print(f"검색 실패 [{q}]: {e}", file=sys.stderr)
+            failed += 1
             continue
         for it in items:
             title, desc = clean(it["title"]), clean(it["description"])
@@ -125,6 +148,11 @@ def main() -> int:
             if link in seen_set or key in seen_set or key in found:
                 continue
             found[key] = {"title": title, "link": link, "date": it.get("pubDate", "")}
+
+    if failed == len(QUERIES):
+        # 전부 실패하면 seen.json을 건드리지 않고 실패 처리 (빈 기록으로 '첫 실행'이 끝나는 것 방지)
+        print("모든 검색이 실패해 중단합니다.", file=sys.stderr)
+        return 1
 
     new = list(found.items())
     print(f"신규 관련 기사 {len(new)}건 (첫 실행={first_run})")
