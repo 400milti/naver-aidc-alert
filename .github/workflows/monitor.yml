@@ -2,7 +2,10 @@ name: naver-aidc-monitor
 
 on:
   schedule:
-    - cron: "*/10 * * * *"   # 10분마다 (private repo면 "*/30 * * * *" 권장)
+    # 시간은 UTC (KST = UTC+9). 실제 알림/요약 시점은 monitor.py가 한국시간으로 판단한다.
+    - cron: "*/10 23 * * *"     # KST 08:00~08:50  10분마다 (아침 요약 + 실시간 시작)
+    - cron: "*/10 0-10 * * *"   # KST 09:00~19:50  10분마다 (실시간)
+    - cron: "0 11-22 * * *"     # KST 20:00~07:00  1시간마다 (조용히 모으기, 휴장일 20시 요약)
   workflow_dispatch: {}        # 수동 실행 버튼
 
 concurrency:
@@ -23,6 +26,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install holidays (한국 공휴일 판정)
+        run: pip install holidays
+
       - name: Run monitor
         env:
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
@@ -31,9 +37,9 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python monitor.py
 
-      - name: Save seen list
+      - name: Save seen list and state
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add seen.json
-          git diff --cached --quiet || (git commit -m "update seen" && git push)
+          git add seen.json state.json
+          git diff --cached --quiet || (git commit -m "update seen" && git pull --rebase -q && git push)
