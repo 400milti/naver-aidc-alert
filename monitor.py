@@ -216,8 +216,13 @@ def send_telegram(token: str, chat_id: str, text: str, preview: bool = True) -> 
     req = urllib.request.Request(
         f"https://api.telegram.org/bot{token}/sendMessage", data=data
     )
-    with urllib.request.urlopen(req, timeout=20) as r:
-        r.read()
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            r.read()
+    except urllib.error.HTTPError as e:
+        # 텔레그램이 돌려주는 이유(description)를 로그에 남긴다. 토큰은 포함되지 않는다.
+        body = e.read().decode("utf-8", "replace")[:200]
+        raise RuntimeError(f"텔레그램 HTTP {e.code} {body}") from None
 
 
 def article_line(a: dict) -> str:
