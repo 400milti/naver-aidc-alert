@@ -44,3 +44,16 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add seen*.json state*.json
           git diff --cached --quiet || (git commit -m "update seen" && git pull --rebase -q && git push)
+
+      - name: Diagnose push failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "--- 토큰이 보는 repo 권한 ---"
+          gh api repos/${{ github.repository }} --jq '.permissions' || true
+          echo "--- workflow 기본 권한 ---"
+          gh api repos/${{ github.repository }}/actions/permissions/workflow || true
+          echo "--- 로컬 커밋 ---"
+          git log --oneline -3
+          git status -sb | head -3
